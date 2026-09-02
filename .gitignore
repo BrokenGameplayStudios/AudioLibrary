@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+catalog.json
+config.json
+
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+.idea/
+.vscode/
