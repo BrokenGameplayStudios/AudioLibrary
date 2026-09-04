@@ -24,22 +24,22 @@ HOST = "127.0.0.1"
 PORT = 8765
 
 AUDIO_EXT = {".wav", ".mp3", ".ogg", ".flac", ".aiff", ".aif", ".m4a", ".aac"}
-SKIP_DIRS = {"_zip", "_library", "__macosx"}
-SKIP_FILES = {".ds_store", "ds_store", "thumbs.db", "desktop.ini"}
+SKIP_DIRS = {"_zip", "_library", "__macosx", "_export"}
+SKIP_FILES = {".ds_store", "ds_store", "thumbs.db", "desktop.ini", "packkind.json"}
 
 KIND_MUSIC = "music"
 KIND_VOICE = "voice"
 KIND_SFX = "sfx"
 
 TAG_RULES: list[tuple[tuple[str, ...], str]] = [
-    (("8-bit", "8bit", "8 bit", "chiptune", "retro game"), "8-bit"),
+    (("8-bit", "8bit", "8 bit", "chiptune", "retro game", "retro"), "8-bit"),
     (("80s", "80's", "synthwave", "outrun"), "80s"),
     (("horror", "ghost", "creepy", "cursed", "cabin", "whisper", "demonic", "sinister", "stinger", "riser"), "horror"),
     (("rpg",), "rpg"),
     (("fantasy", "magical", "dragon", "lich", "goblin", "kobold", "bard"), "fantasy"),
     (("action", "fighter", "brutal", "aggressive", "destructive"), "action"),
     (("cinematic", "trailer", "teaser", "symphony"), "cinematic"),
-    (("ambient", "relaxing", "close your eyes"), "ambient"),
+    (("ambient", "relaxing", "close your eyes", "ambiance", "ambience"), "ambient"),
     (("cyberpunk", "high-tech", "high tech", "futuristic"), "cyberpunk"),
     (("electronic", "electronica", "techno", "hybrid electronic"), "electronic"),
     (("industrial",), "industrial"),
@@ -61,12 +61,35 @@ TAG_RULES: list[tuple[tuple[str, ...], str]] = [
     (("reverse",), "reverse"),
     (("sci-fi", "scifi", "science fiction", "laser", "droid"), "sci-fi"),
     (("combat", "gun", "explosion", "bomb"), "combat"),
-    (("animal", "dog", "farm", "jungle"), "animals"),
-    (("vehicle", "car", "truck", "train", "plane", "helicopter", "boat", "traffic"), "vehicles"),
-    (("household", "phone", "clock", "office"), "foley"),
+    (("animal", "dog", "farm", "jungle", "cat", "bird", "wolf", "horse", "lion"), "animals"),
+    (("vehicle", "car", "truck", "train", "plane", "helicopter", "boat", "traffic", "engine"), "vehicles"),
+    (("household", "phone", "clock", "office", "foley"), "foley"),
     (("audience", "applause"), "crowd"),
     (("stinger",), "stinger"),
     (("riser",), "riser"),
+    (("footstep", "footsteps", "foostep", "foosteps"), "footsteps"),
+    (("water", "splash", "splashes", "underwater"), "water"),
+    (("flame", "campfire", "bonfire", "fireball"), "fire"),
+    (("interface", "button", "menuui", "ui sound", "ui item"), "ui"),
+    (("magic", "spell", "spells"), "magic"),
+    (("whoosh", "whooshes", "sweep", "sweeps", "swish"), "whoosh"),
+    (("door", "doors"), "door"),
+    (("robot", "robots"), "robot"),
+    (("zombie", "zombies", "undead"), "zombie"),
+    (("punch", "punches", "melee", "smack", "scuffle", "sword", "swords"), "melee"),
+    (("explosion", "explosions", "explode"), "explosion"),
+    (("gore", "gory"), "gore"),
+    (("glitch", "electric", "shock", "interference"), "electric"),
+    (("pickup", "collect", "loot", "coin"), "pickup"),
+    (("pistol", "rifle", "shotgun", "bullet", "gunshot"), "guns"),
+    (("bow", "arrow", "arrows"), "weapons"),
+    (("impact", "impacts"), "impact"),
+    (("pirate", "pirates"), "pirate"),
+    (("announcer", "announcement"), "announcer"),
+    (("alien", "aliens"), "alien"),
+    (("blacksmith", "anvil"), "blacksmith"),
+    (("raining", "rainfall", "rainstorm"), "rain"),
+    (("windy", "wind ambi", "wind sound"), "wind"),
 ]
 
 CREATURES = (
@@ -224,6 +247,7 @@ SPLIT_WORDS = tuple(
 _audio_root: Path | None = None
 _catalog: dict = {"generated": 0, "items": [], "count": 0, "root": ""}
 _by_id: dict[int, dict] = {}
+_packkind: dict[str, dict] = {}
 _catalog_lock = threading.Lock()
 _scan_ctl = threading.Lock()
 _state_lock = threading.Lock()
@@ -259,7 +283,25 @@ def _split_concat(token: str) -> list[str]:
     return out or [token]
 
 
+def load_packkind(audio_root: Path) -> None:
+    global _packkind
+    _packkind = {}
+    path = audio_root / "packkind.json"
+    try:
+        if not path.exists():
+            return
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    packs = data.get("packs") if isinstance(data, dict) else None
+    if isinstance(packs, dict):
+        _packkind = packs
+
+
 def pack_title(folder: str) -> str:
+    meta = _packkind.get(folder) or {}
+    if isinstance(meta, dict) and meta.get("title"):
+        return str(meta["title"])
     if folder in PACK_TITLES:
         return PACK_TITLES[folder]
     lower = folder.lower()
@@ -300,6 +342,11 @@ def pack_title(folder: str) -> str:
 
 
 def detect_kind(pack: str, rel: str, name: str) -> str:
+    meta = _packkind.get(pack) or {}
+    if isinstance(meta, dict):
+        k = str(meta.get("kind", "")).lower()
+        if k in (KIND_MUSIC, KIND_VOICE, KIND_SFX):
+            return k
     p = pack.lower()
     if "valentino" in p or "soundeffect" in p:
         return KIND_SFX
@@ -338,6 +385,12 @@ def detect_tags(pack: str, rel: str, name: str, kind: str) -> list[str]:
         tags.append(creature)
         if "monster" not in tags:
             tags.append("monster")
+    meta = _packkind.get(pack) or {}
+    extra = meta.get("tags") if isinstance(meta, dict) else None
+    if isinstance(extra, list):
+        for t in extra:
+            if t:
+                tags.append(str(t))
     # keep order, cap noise
     seen = set()
     out = []
@@ -478,6 +531,7 @@ def iter_audio_files(audio_root: Path):
 
 
 def build_catalog(audio_root: Path) -> dict:
+    load_packkind(audio_root)
     items = []
     last_pack = ""
     for i, (pack, rel, path, in_root) in enumerate(iter_audio_files(audio_root), start=1):
