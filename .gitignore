@@ -5,6 +5,7 @@ __pycache__/
 
 catalog.json
 config.json
+packkind.snapshot.json
 
 .DS_Store
 Thumbs.db
