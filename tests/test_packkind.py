@@ -410,6 +410,77 @@ class PackkindTests(unittest.TestCase):
         self.assertEqual(server.detect_kind("valentinosoundeffectslibrary", "", ""), "sfx")
         self.assertEqual(server.detect_kind("someambientpack", "voice.wav", "voice"), "music")
 
+    def test_browse_root_409_when_write_running(self):
+        called = {"n": 0}
+        orig = server.pick_directory
+
+        def boom(*_a, **_k):
+            called["n"] += 1
+            raise AssertionError("folder dialog should not open while saving")
+
+        server.pick_directory = boom
+        server._write_running = True
+        try:
+            status, body = self.request("POST", "/api/browse-root", {})
+            self.assertEqual(status, 409, body)
+            self.assertIn("Saving tags", body.get("error", ""))
+            self.assertEqual(called["n"], 0)
+        finally:
+            server._write_running = False
+            server.pick_directory = orig
+
+    def test_browse_root_snapshots_when_missing(self):
+        self.write_sidecar({
+            "door": {"kind": "sfx", "title": "Door", "tags": ["sfx", "door", "foley"]},
+        })
+        self.assertFalse(server.SNAPSHOT_PATH.exists())
+        orig_pick = server.pick_directory
+        orig_scan = server.start_scan
+        server.pick_directory = lambda _initial: self.audio
+        server.start_scan = lambda clear_catalog=False: (True, "Scan started")
+        try:
+            status, body = self.request("POST", "/api/browse-root", {})
+            self.assertEqual(status, 200, body)
+            self.assertTrue(body.get("ok"))
+            self.assertTrue(server.SNAPSHOT_PATH.exists())
+            snap = self.read_sidecar(server.SNAPSHOT_PATH)
+            self.assertEqual(snap["packs"]["door"]["tags"], ["sfx", "door", "foley"])
+        finally:
+            server.pick_directory = orig_pick
+            server.start_scan = orig_scan
+
+    def test_browse_root_does_not_refresh_existing_snapshot(self):
+        self.write_sidecar({
+            "door": {"kind": "sfx", "title": "Door", "tags": ["sfx", "foley"]},
+        })
+        server.SNAPSHOT_PATH.write_text(
+            json.dumps({"version": 1, "packs": {"door": {"kind": "sfx", "tags": ["sfx", "wood"]}}}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        orig_pick = server.pick_directory
+        orig_scan = server.start_scan
+        server.pick_directory = lambda _initial: self.audio
+        server.start_scan = lambda clear_catalog=False: (True, "Scan started")
+        try:
+            status, body = self.request("POST", "/api/browse-root", {})
+            self.assertEqual(status, 200, body)
+            snap = self.read_sidecar(server.SNAPSHOT_PATH)
+            self.assertEqual(snap["packs"]["door"]["tags"], ["sfx", "wood"])
+        finally:
+            server.pick_directory = orig_pick
+            server.start_scan = orig_scan
+
+    def test_kind_only_rewrites_kind_token_in_tags(self):
+        self.write_sidecar({
+            "door": {"kind": "sfx", "title": "Door", "tags": ["sfx", "door", "foley"]},
+        })
+        status, body = self.save({"pack": "door", "kind": "music"})
+        self.assertEqual(status, 200, body)
+        pack = self.read_sidecar()["packs"]["door"]
+        self.assertEqual(pack["kind"], "music")
+        self.assertEqual(pack["title"], "Door")
+        self.assertEqual(pack["tags"], ["music", "door", "foley"])
+
 
 if __name__ == "__main__":
     unittest.main()

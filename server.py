@@ -545,10 +545,17 @@ def _io_save_error(exc: BaseException) -> str:
     return str(exc)
 
 
-def commit_packkind(slug: str, new_obj: dict, message: str) -> tuple[int, dict]:
-    """Write dest + bak + catalog + snapshot. Caller holds the write gate."""
+def commit_packkind(
+    slug: str,
+    new_obj: dict,
+    message: str,
+    dest: Path,
+    bak: Path,
+    snap: Path,
+) -> tuple[int, dict]:
+    """Write dest + bak + catalog + snapshot. Caller holds the write gate.
+    Paths are captured at write start so a mid-Save folder switch cannot retarget dest."""
     global _packkind
-    dest, bak, snap = packkind_dest_paths()
     sidecar_saved = False
     try:
         dest_doc = read_packkind_document(dest)
@@ -629,6 +636,13 @@ def field_patch_pack(existing: dict | None, slug: str, kind=_OMIT, title=_OMIT, 
         if err:
             return None, err
         obj["tags"] = tags_for_sidecar(obj["kind"], extras)
+    elif kind is not _OMIT:
+        existing_tags = obj.get("tags")
+        if not isinstance(existing_tags, list):
+            obj["tags"] = [obj["kind"]]
+        else:
+            extras = [str(t) for t in existing_tags if str(t) not in VALID_KINDS]
+            obj["tags"] = tags_for_sidecar(obj["kind"], extras)
     elif not isinstance(obj.get("tags"), list):
         obj["tags"] = [obj["kind"]]
     return obj, None
@@ -725,7 +739,7 @@ def save_packkind_response(payload: dict) -> tuple[int, dict]:
                 message = f"Saved. {shown} is now {label}. It will show under the {label} button."
             else:
                 message = f"Saved tags for {shown}. Other files in this pack will show them too."
-            return commit_packkind(slug, new_obj, message)
+            return commit_packkind(slug, new_obj, message, dest, _bak, _snap)
     finally:
         end_packkind_write()
 
@@ -763,7 +777,7 @@ def restore_packkind_response(payload: dict) -> tuple[int, dict]:
             if isinstance(new_obj.get("tags"), list):
                 new_obj["tags"] = list(new_obj["tags"])
             message = f"Restored the last saved tags for {display_title(slug, new_obj)}."
-            code, body = commit_packkind(slug, new_obj, message)
+            code, body = commit_packkind(slug, new_obj, message, dest, bak, snap)
             if code == 200:
                 print(f"packkind: restored {slug} from {src_name} -> {dest}", flush=True)
             return code, body
@@ -1250,6 +1264,14 @@ class Handler(BaseHTTPRequestHandler):
     def _bound_port(self) -> int:
         return int(self.server.server_address[1])
 
+    def _root_change_blocked(self) -> str | None:
+        with _scan_ctl:
+            if snapshot_scan()["running"]:
+                return "Scan already running"
+            if _write_running:
+                return "Saving tags, wait then Rescan"
+            return None
+
     def _host_allowed(self) -> bool:
         host = (self.headers.get("Host") or "").strip().lower()
         if not host:
@@ -1363,8 +1385,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "message": message})
             return
         if path == "/api/browse-root":
-            if snapshot_scan()["running"]:
-                self._json(409, {"ok": False, "error": "Scan already running"})
+            blocked = self._root_change_blocked()
+            if blocked:
+                self._json(409, {"ok": False, "error": blocked})
                 return
             try:
                 chosen = pick_directory(_audio_root)
@@ -1374,19 +1397,30 @@ class Handler(BaseHTTPRequestHandler):
             if chosen is None:
                 self._json(200, {"ok": False, "cancelled": True})
                 return
+            blocked = self._root_change_blocked()
+            if blocked:
+                self._json(409, {"ok": False, "error": blocked})
+                return
             set_audio_root(chosen)
             try:
                 save_config(chosen)
             except OSError as e:
                 self._json(500, {"ok": False, "error": f"Could not save folder: {e}"})
                 return
+            load_packkind(chosen)
+            ensure_packkind_snapshot()
             ok, message = start_scan(clear_catalog=True)
+            if not ok:
+                low = message.lower()
+                code = 409 if ("already" in low or "saving tags" in low) else 400
+                self._json(code, {"ok": False, "error": message, "root": str(chosen)})
+                return
             self._json(
                 200,
                 {
                     "ok": True,
                     "root": str(chosen),
-                    "scanning": ok,
+                    "scanning": True,
                     "message": message,
                 },
             )

@@ -503,6 +503,7 @@
     const HIDDEN_CHIP_TAGS = new Set(["ultimatesfx"]);
     const CHIP_TOP_N = 24;
     const KIND_LABELS = { music: "Music", voice: "Voice", sfx: "SFX" };
+    const KIND_TOKENS = new Set(["music", "voice", "sfx"]);
     const TAG_NAME_RE = /^[a-z0-9_][a-z0-9+\-._]{0,31}$/;
     const state = {
       items: [],
@@ -643,7 +644,7 @@
       const tagCounts = {};
       for (const it of chipIts) {
         for (const t of it.tags) {
-          if (t === it.kind) continue;
+          if (KIND_TOKENS.has(t)) continue;
           tagCounts[t] = (tagCounts[t] || 0) + 1;
         }
       }
@@ -803,7 +804,7 @@
     }
 
     function extrasFromTags(tags, kind) {
-      return (tags || []).filter((t) => t !== "music" && t !== "voice" && t !== "sfx" && t !== kind);
+      return (tags || []).filter((t) => !KIND_TOKENS.has(t) && t !== kind);
     }
 
     function updateEditTagsBtn() {
@@ -1054,6 +1055,16 @@
 
     async function restoreEditor() {
       if (!state.editPack || state.editSaving) return;
+      if (state.editDirty) {
+        const title = (state.editDraft && state.editDraft.title) || state.editPack || "this pack";
+        const choice = await askDirty(title);
+        if (choice === "cancel") return;
+        if (choice === "save") {
+          if (!(await saveEditor())) return;
+          return;
+        }
+        state.editDirty = false;
+      }
       state.editSaving = true;
       state.editError = "";
       syncEditorUi();
@@ -1216,8 +1227,7 @@
       renderSidebar();
     });
     $("editClose").addEventListener("click", async () => {
-      if (!(await confirmLeaveEditor())) return;
-      closeEditorDom();
+      await selectPack(null);
     });
     $("editTitle").addEventListener("input", (e) => {
       if (!state.editDraft) return;
@@ -1425,15 +1435,16 @@
       }
     });
 
+    let wasNarrow = isNarrow();
     window.addEventListener("resize", () => {
       renderList();
       const el = $("packEditor");
-      if (el.hasAttribute("hidden")) return;
-      if (isNarrow() && el.classList.contains("docked")) {
-        el.classList.add("modal");
-        el.classList.remove("docked");
-        $("editClose").hidden = false;
+      const narrow = isNarrow();
+      if (!el.hasAttribute("hidden")) {
+        if (narrow && !wasNarrow) openEditorDom(true);
+        else if (!narrow && wasNarrow) openEditorDom(false);
       }
+      wasNarrow = narrow;
     });
     (async () => {
       try {
