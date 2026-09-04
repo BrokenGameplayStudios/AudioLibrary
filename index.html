@@ -144,7 +144,11 @@
     }
     .pack-hint { color: var(--faint); font-size: 11px; margin: 8px 0 0; }
     #tagsMore { margin-top: 8px; width: 100%; }
-    .sidebar-col:has(#packEditor.docked) .pack-list { max-height: 28vh; }
+    .sidebar-col:has(#packEditor.docked) .pack-list,
+    .sidebar-col:has(#poolEditor.docked) .pack-list { max-height: 28vh; }
+    .sidebar-col:has(#packEditor.docked):has(#poolEditor.docked) .pack-list { max-height: 18vh; }
+    #poolToggle, #modifyTagsBtn { width: 100%; margin-top: 8px; }
+    #poolToggleHeader { display: none; }
     .block { margin-bottom: 18px; }
     .block h2 {
       margin: 0 0 8px;
@@ -324,12 +328,12 @@
 
     .status { color: var(--faint); font-size: 12px; }
 
-    #packEditor {
+    #packEditor, #poolEditor {
       padding: 12px 14px 16px;
       border-top: 1px solid var(--line);
     }
-    #packEditor.docked { flex: 0 0 auto; }
-    #packEditor.modal {
+    #packEditor.docked, #poolEditor.docked { flex: 0 0 auto; }
+    #packEditor.modal, #poolEditor.modal {
       display: block;
       position: fixed;
       inset: 0;
@@ -339,12 +343,21 @@
       overflow: auto;
       border-top: 0;
     }
-    #packEditor h2 { display: inline-block; }
-    #editClose { float: right; }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .panel-head h2 { margin: 0; }
     .editor-title { font-weight: 650; margin: 0 0 8px; }
-    #packEditor label { display: block; color: var(--faint); font-size: 11px; margin: 6px 0 4px; }
+    #packEditor label, #poolEditor label { display: block; color: var(--faint); font-size: 11px; margin: 6px 0 4px; }
     #packEditor input[type="text"],
-    #packEditor select {
+    #packEditor input[type="search"],
+    #packEditor select,
+    #poolEditor input[type="text"],
+    #poolEditor input[type="search"] {
       width: 100%;
       height: 32px;
       border: 1px solid var(--line);
@@ -353,10 +366,14 @@
       padding: 0 10px;
       margin-bottom: 8px;
     }
+    .add-row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+    .add-row input { flex: 1; margin-bottom: 0 !important; }
+    .add-row .btn { height: 32px; flex: 0 0 auto; }
     .editor-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
     .editor-msg { margin-top: 8px; font-size: 12px; color: var(--muted); }
     .editor-msg.error { color: var(--danger); }
     .unsaved { color: var(--accent); font-size: 12px; margin-top: 6px; }
+    .chip.on-pack { background: var(--accent); color: #1a140a; border-color: var(--accent); font-weight: 600; }
 
     .confirm-overlay {
       position: fixed;
@@ -381,7 +398,9 @@
       .app { grid-template-columns: 1fr; }
       .sidebar-col { display: contents; }
       aside { display: none; }
-      #packEditor:not(.modal) { display: none !important; }
+      #poolToggleHeader { display: inline-flex; align-items: center; }
+      #packEditor:not(.modal),
+      #poolEditor:not(.modal) { display: none !important; }
       .row { grid-template-columns: 40px 1fr 40px; }
       .row .hide-sm { display: none; }
       footer.player { grid-template-columns: 1fr; padding: 8px 12px; height: auto; }
@@ -401,6 +420,7 @@
       </div>
       <div class="header-actions">
         <span class="root-path" id="rootLabel" title="">No folder selected</span>
+        <button class="btn ghost" id="poolToggleHeader" title="Add or remove tags for the whole library">Edit tags</button>
         <button class="btn ghost" id="browseBtn" title="Choose the folder to scan">Library folder…</button>
         <button class="btn ghost" id="rescanBtn" title="Rescan the folder">Rescan</button>
       </div>
@@ -417,17 +437,36 @@
           <input id="tagSearch" type="search" placeholder="Find a tag…" />
           <div class="chips" id="tags"></div>
           <button class="btn ghost" id="tagsMore" hidden>Show all tags</button>
+          <button class="btn ghost" id="poolToggle">Edit tags</button>
         </div>
         <div class="block">
           <h2>Packs</h2>
           <input id="packSearch" type="search" placeholder="Filter packs…" />
           <div class="pack-list" id="packs"></div>
-          <p class="pack-hint" id="packHint">Select a pack to add tags.</p>
+          <p class="pack-hint" id="packHint">Select a pack, then Modify tags.</p>
+          <button class="btn" id="modifyTagsBtn" hidden>Modify tags</button>
         </div>
       </aside>
+      <div id="poolEditor" class="tag-panel" hidden>
+        <div class="panel-head">
+          <h2>Library tags</h2>
+          <button class="btn ghost" id="poolDone">Done</button>
+        </div>
+        <p class="pack-hint">Add a tag here to use it on packs. Removing one takes it off every pack.</p>
+        <input id="poolSearch" type="search" placeholder="Find a tag…" />
+        <div class="chips" id="poolChips"></div>
+        <div class="add-row">
+          <label class="sr-only" for="poolAdd">New tag name</label>
+          <input id="poolAdd" type="text" maxlength="32" placeholder="New tag name" />
+          <button class="btn" id="poolAddBtn">Add</button>
+        </div>
+        <div class="editor-msg" id="poolMsg"></div>
+      </div>
       <div id="packEditor" class="pack-editor" hidden>
-        <h2>Tags on this pack</h2>
-        <button class="btn ghost" id="editClose" hidden>Close</button>
+        <div class="panel-head">
+          <h2>Tags on this pack</h2>
+          <button class="btn ghost" id="editClose">Done</button>
+        </div>
         <div class="editor-title" id="editTitleReadout"></div>
         <label class="sr-only" for="editTitle">Pack name</label>
         <input id="editTitle" type="text" maxlength="80" placeholder="Pack name" />
@@ -437,11 +476,10 @@
           <option value="voice">Voice</option>
           <option value="music">Music</option>
         </select>
+        <p class="pack-hint" id="editPoolHint">Click a tag to add or remove it on this pack.</p>
         <div class="chips" id="editTags"></div>
-        <input id="editAdd" type="text" maxlength="32" placeholder="Add a tag…  (Enter)" />
-        <div class="unsaved" id="editUnsaved" hidden>Not saved yet.</div>
+        <div class="unsaved" id="editUnsaved" hidden>Saving…</div>
         <div class="editor-actions">
-          <button class="btn" id="editSave" disabled>Save tags</button>
           <button class="btn ghost" id="editRestore" hidden>Restore last tags</button>
         </div>
         <div class="editor-msg" id="editMsg"></div>
@@ -481,7 +519,7 @@
       </div>
       <div class="player-right">
         <input class="vol" id="vol" type="range" min="0" max="1" step="0.01" value="0.9" title="Volume" />
-        <button class="btn ghost" id="editTagsBtn" hidden title="Edit tags for this pack">Edit tags</button>
+        <button class="btn ghost" id="editTagsBtn" hidden title="Add or remove tags on this pack">Modify tags</button>
         <button class="btn" id="openCurrentBtn" title="Open folder of current sound">Open folder</button>
       </div>
     </footer>
@@ -515,6 +553,13 @@
       packQuery: "",
       tagQuery: "",
       tagsExpanded: false,
+      vocabulary: [],
+      poolOpen: false,
+      poolBusy: false,
+      poolError: "",
+      poolMessage: "",
+      poolQuery: "",
+      packPanelOpen: false,
       editPack: null,
       editDraft: null,
       editOrigKind: null,
@@ -811,26 +856,82 @@
       const btn = $("editTagsBtn");
       if (!btn) return;
       const it = state.items.find((x) => x.id === state.playingId) || currentItem();
-      btn.hidden = !it;
+      btn.hidden = !it && !state.pack;
+      const modify = $("modifyTagsBtn");
+      if (modify) {
+        modify.hidden = !state.pack;
+        modify.textContent = state.packPanelOpen ? "Hide pack tags" : "Modify tags";
+      }
+      const hint = $("packHint");
+      if (hint) {
+        hint.textContent = state.pack
+          ? (state.packPanelOpen ? "Done hides this panel. The pack stays selected." : "Modify tags to add or remove tags on this pack.")
+          : "Select a pack, then Modify tags.";
+      }
+      const poolBtn = $("poolToggle");
+      if (poolBtn) poolBtn.textContent = state.poolOpen ? "Hide tag editor" : "Edit tags";
+      const header = $("poolToggleHeader");
+      if (header) header.textContent = state.poolOpen ? "Hide tags" : "Edit tags";
+    }
+
+    function setPanelDom(el, open, modal) {
+      if (!el) return;
+      if (!open) {
+        el.setAttribute("hidden", "");
+        el.classList.remove("modal", "docked");
+        return;
+      }
+      el.removeAttribute("hidden");
+      if (modal) {
+        el.classList.add("modal");
+        el.classList.remove("docked");
+      } else {
+        el.classList.add("docked");
+        el.classList.remove("modal");
+      }
+    }
+
+    function syncPoolUi() {
+      const q = (state.poolQuery || "").trim().toLowerCase();
+      const tags = (state.vocabulary || []).filter((t) => !q || t.toLowerCase().includes(q));
+      $("poolChips").innerHTML = tags.map((t) =>
+        `<button type="button" class="chip edit-chip pool-chip" data-pool-tag="${escapeAttr(t)}">${escapeHtml(t)} <span class="chip-x" aria-label="Remove">×</span></button>`
+      ).join("") || (q ? "" : `<span class="pack-hint">No tags yet. Type a name and click Add.</span>`);
+      const msg = $("poolMsg");
+      if (state.poolError) {
+        msg.textContent = state.poolError;
+        msg.classList.add("error");
+      } else {
+        msg.textContent = state.poolMessage || "";
+        msg.classList.remove("error");
+      }
+      $("poolAddBtn").disabled = state.poolBusy;
+      $("poolAdd").disabled = state.poolBusy;
+      updateEditTagsBtn();
     }
 
     function syncEditorUi() {
-      const el = $("packEditor");
       const draft = state.editDraft;
-      const dirty = state.editDirty;
-      $("editSave").disabled = !dirty || state.editSaving || !draft;
-      $("editSave").textContent = state.editSaving ? "Saving tags…" : (dirty ? "Save tags" : "Saved");
-      $("editSave").classList.toggle("primary", dirty && !state.editSaving);
-      $("editUnsaved").hidden = !dirty || state.editSaving;
+      $("editUnsaved").hidden = !state.editSaving;
       $("editRestore").hidden = !state.editRestoreWouldChange;
-      $("editClose").hidden = !el.classList.contains("modal");
       if (draft) {
         if ($("editTitle") !== document.activeElement) $("editTitle").value = draft.title || "";
         if ($("editKind") !== document.activeElement) $("editKind").value = draft.kind;
         $("editTitleReadout").textContent = draft.title || state.editPack || "";
-        $("editTags").innerHTML = draft.tags.map((t) =>
-          `<button type="button" class="chip edit-chip" data-edit-tag="${escapeAttr(t)}">${escapeHtml(t)} <span class="chip-x" aria-label="Remove">×</span></button>`
-        ).join("");
+        const onPack = new Set(draft.tags || []);
+        const pool = (state.vocabulary || []).slice();
+        for (const t of draft.tags || []) {
+          if (t && !pool.includes(t)) pool.push(t);
+        }
+        if (!pool.length) {
+          $("editTags").innerHTML = "";
+          $("editPoolHint").textContent = "Add tags under Edit tags first, then they show up here.";
+        } else {
+          $("editPoolHint").textContent = "Click a tag to add or remove it on this pack.";
+          $("editTags").innerHTML = pool.map((t) =>
+            `<button type="button" class="chip ${onPack.has(t) ? "on-pack" : ""}" data-edit-tag="${escapeAttr(t)}">${escapeHtml(t)}</button>`
+          ).join("");
+        }
       }
       const msg = $("editMsg");
       if (state.editError) {
@@ -840,36 +941,45 @@
         msg.textContent = state.editMessage || "";
         msg.classList.remove("error");
       }
+      updateEditTagsBtn();
     }
 
     function closeEditorDom() {
-      const el = $("packEditor");
-      el.setAttribute("hidden", "");
-      el.classList.remove("modal", "docked");
-      $("editClose").hidden = true;
+      state.packPanelOpen = false;
+      setPanelDom($("packEditor"), false, false);
+      updateEditTagsBtn();
     }
 
     function openEditorDom(modal) {
-      const el = $("packEditor");
-      el.removeAttribute("hidden");
-      if (modal) {
-        el.classList.add("modal");
-        el.classList.remove("docked");
-        $("editClose").hidden = false;
-      } else {
-        el.classList.add("docked");
-        el.classList.remove("modal");
-        $("editClose").hidden = true;
-      }
+      state.packPanelOpen = true;
+      setPanelDom($("packEditor"), true, modal);
+      updateEditTagsBtn();
     }
 
-    function askDirty(packTitle) {
+    function closePoolDom() {
+      state.poolOpen = false;
+      setPanelDom($("poolEditor"), false, false);
+      updateEditTagsBtn();
+    }
+
+    function openPoolDom(modal) {
+      state.poolOpen = true;
+      setPanelDom($("poolEditor"), true, modal);
+      syncPoolUi();
+      updateEditTagsBtn();
+    }
+
+    function askConfirm(text, { confirmLabel = "Save", showDiscard = true } = {}) {
       return new Promise((resolve) => {
         const overlay = $("confirmOverlay");
-        $("confirmText").textContent = "Save tags for " + packTitle + " first?";
+        $("confirmText").textContent = text;
+        $("confirmSave").textContent = confirmLabel;
+        $("confirmDont").hidden = !showDiscard;
         overlay.removeAttribute("hidden");
         const finish = (v) => {
           overlay.setAttribute("hidden", "");
+          $("confirmDont").hidden = false;
+          $("confirmSave").textContent = "Save";
           $("confirmSave").onclick = null;
           $("confirmDont").onclick = null;
           $("confirmCancel").onclick = null;
@@ -881,6 +991,10 @@
       });
     }
 
+    function askDirty(packTitle) {
+      return askConfirm("Save tags for " + packTitle + " first?");
+    }
+
     async function confirmLeaveEditor() {
       if (!state.editDirty) return true;
       const title = (state.editDraft && state.editDraft.title) || state.editPack || "this pack";
@@ -889,6 +1003,22 @@
       if (choice === "save") return await saveEditor();
       state.editDirty = false;
       return true;
+    }
+
+    async function loadVocabulary() {
+      if (!state.root) {
+        state.vocabulary = [];
+        return;
+      }
+      try {
+        const res = await fetch("/api/tags");
+        const body = await res.json().catch(() => ({}));
+        if (res.ok && body.ok && Array.isArray(body.vocabulary)) {
+          state.vocabulary = body.vocabulary;
+        }
+      } catch (err) {
+        /* keep last vocabulary */
+      }
     }
 
     async function loadEditor(slug) {
@@ -918,12 +1048,14 @@
         state.editRestoreWouldChange = !!body.restoreWouldChange;
         state.editHasBackup = !!body.hasBackup;
         state.editDraft._origTags = state.editDraft.tags.slice();
+        if (Array.isArray(body.vocabulary)) state.vocabulary = body.vocabulary;
         if (body.catalogAheadOfSidecar) {
           state.editMessage = "These tags look different from the last save. Restore last tags?";
         } else {
           state.editMessage = "";
         }
         syncEditorUi();
+        syncPoolUi();
       } catch (err) {
         state.editError = "Could not read tags file.";
         syncEditorUi();
@@ -933,10 +1065,6 @@
     async function openEditor(slug, modal) {
       openEditorDom(modal);
       await loadEditor(slug);
-      if (modal) {
-        const add = $("editAdd");
-        if (add) add.focus();
-      }
     }
 
     function markDirty() {
@@ -945,33 +1073,132 @@
       syncEditorUi();
     }
 
-    function addDraftTag(raw) {
-      if (!state.editDraft) return;
-      const t = String(raw || "").trim().toLowerCase();
+    async function togglePackTag(tag) {
+      if (!state.editDraft || state.editSaving) return;
+      const t = String(tag || "");
       if (!t) return;
+      const prev = state.editDraft.tags.slice();
+      if (state.editDraft.tags.includes(t)) {
+        state.editDraft.tags = state.editDraft.tags.filter((x) => x !== t);
+      } else {
+        if (state.editDraft.tags.length >= 24) {
+          state.editError = "That’s enough tags for this pack.";
+          syncEditorUi();
+          return;
+        }
+        state.editDraft.tags.push(t);
+      }
+      const ok = await saveEditor();
+      if (!ok) state.editDraft.tags = prev;
+      syncEditorUi();
+    }
+
+    async function addPoolTag(raw) {
+      if (state.poolBusy) return;
+      const t = String(raw || "").trim().toLowerCase();
+      if (!t) {
+        state.poolError = "Type a tag name.";
+        syncPoolUi();
+        return;
+      }
       if (/\s/.test(t)) {
-        state.editError = "Use a hyphen, like sci-fi";
-        syncEditorUi();
+        state.poolError = "Use a hyphen, like sci-fi";
+        syncPoolUi();
         return;
       }
       if (t === "music" || t === "voice" || t === "sfx") {
-        state.editError = "Use the Type dropdown for music, voice, or sfx.";
-        syncEditorUi();
+        state.poolError = "Use the Type dropdown for music, voice, or sfx.";
+        syncPoolUi();
         return;
       }
       if (!TAG_NAME_RE.test(t)) {
-        state.editError = "That tag name isn’t allowed.";
-        syncEditorUi();
+        state.poolError = "That tag name isn’t allowed.";
+        syncPoolUi();
         return;
       }
-      if (state.editDraft.tags.includes(t)) return;
-      if (state.editDraft.tags.length >= 24) {
-        state.editError = "That’s enough tags for this pack.";
-        syncEditorUi();
-        return;
+      state.poolBusy = true;
+      state.poolError = "";
+      state.poolMessage = "Adding…";
+      syncPoolUi();
+      try {
+        const res = await fetch("/api/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ add: t }),
+        });
+        const body = await res.json().catch(() => ({}));
+        state.poolBusy = false;
+        if (!res.ok || !body.ok) {
+          state.poolError = body.error || (res.status === 409
+            ? "Scan in progress — wait, then try again."
+            : "Could not save — is the share still connected?");
+          state.poolMessage = "";
+          syncPoolUi();
+          return;
+        }
+        if (Array.isArray(body.vocabulary)) state.vocabulary = body.vocabulary;
+        $("poolAdd").value = "";
+        state.poolMessage = body.message || "Added.";
+        state.poolError = "";
+        syncPoolUi();
+        if (state.packPanelOpen) syncEditorUi();
+      } catch (err) {
+        state.poolBusy = false;
+        state.poolError = "Could not save — is the share still connected?";
+        state.poolMessage = "";
+        syncPoolUi();
       }
-      state.editDraft.tags.push(t);
-      markDirty();
+    }
+
+    async function removePoolTag(tag) {
+      if (state.poolBusy) return;
+      const t = String(tag || "");
+      if (!t) return;
+      const choice = await askConfirm(
+        "Remove “" + t + "” from the library? It will come off every pack that has it.",
+        { confirmLabel: "Remove", showDiscard: false }
+      );
+      if (choice !== "save") return;
+      state.poolBusy = true;
+      state.poolError = "";
+      state.poolMessage = "Removing…";
+      syncPoolUi();
+      try {
+        const res = await fetch("/api/tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remove: t }),
+        });
+        const body = await res.json().catch(() => ({}));
+        state.poolBusy = false;
+        if (!res.ok || !body.ok) {
+          state.poolError = body.error || (res.status === 409
+            ? "Scan in progress — wait, then try again."
+            : "Could not save — is the share still connected?");
+          state.poolMessage = "";
+          syncPoolUi();
+          return;
+        }
+        if (Array.isArray(body.vocabulary)) state.vocabulary = body.vocabulary;
+        if (body.reloadCatalog || (body.strippedPacks && body.strippedPacks.length > 1)) {
+          await loadCatalog();
+        } else {
+          applyPatchedItems(body.items || [], [t]);
+        }
+        if (state.editDraft) {
+          state.editDraft.tags = state.editDraft.tags.filter((x) => x !== t);
+          state.editDraft._origTags = (state.editDraft._origTags || []).filter((x) => x !== t);
+        }
+        state.poolMessage = body.message || "Removed.";
+        state.poolError = "";
+        syncPoolUi();
+        if (state.packPanelOpen) syncEditorUi();
+      } catch (err) {
+        state.poolBusy = false;
+        state.poolError = "Could not save — is the share still connected?";
+        state.poolMessage = "";
+        syncPoolUi();
+      }
     }
 
     function applyPatchedItems(items, removedExtras) {
@@ -1026,7 +1253,7 @@
         state.editSaving = false;
         if (!res.ok || !body.ok) {
           state.editError = body.error || (res.status === 409
-            ? "Scan in progress — wait, then Save."
+            ? "Scan in progress — wait, then try again."
             : "Could not save — is the share still connected?");
           if (body.sidecarSaved) {
             state.editError += " Tags are on disk. Restore first if Unreal clobbered, then Rescan.";
@@ -1041,8 +1268,10 @@
         state.editDraft._origTags = state.editDraft.tags.slice();
         state.editRestoreWouldChange = !!body.restoreWouldChange;
         state.editHasBackup = !!body.hasBackup;
+        if (Array.isArray(body.vocabulary)) state.vocabulary = body.vocabulary;
         state.editMessage = (body.message || "Saved.") + stay;
         syncEditorUi();
+        syncPoolUi();
         return true;
       } catch (err) {
         state.editSaving = false;
@@ -1098,17 +1327,50 @@
         if (!(await confirmLeaveEditor())) return;
       }
       state.pack = slug || null;
-      const el = $("packEditor");
       if (!slug) {
         state.editPack = null;
         state.editDraft = null;
         state.editDirty = false;
         closeEditorDom();
-      } else if (!(state.editPack === slug && state.editDraft && !el.hasAttribute("hidden"))) {
+      } else if (state.packPanelOpen) {
         await openEditor(slug, isNarrow());
       }
       renderSidebar();
       applyFilter();
+    }
+
+    async function collapsePackEditor() {
+      if (!(await confirmLeaveEditor())) return;
+      const narrow = isNarrow();
+      closeEditorDom();
+      if (narrow) {
+        state.pack = null;
+        state.editPack = null;
+        state.editDraft = null;
+        state.editDirty = false;
+        renderSidebar();
+        applyFilter();
+      }
+    }
+
+    async function togglePackPanel() {
+      if (!state.pack) return;
+      if (state.packPanelOpen) {
+        await collapsePackEditor();
+        return;
+      }
+      await openEditor(state.pack, isNarrow());
+    }
+
+    async function togglePoolPanel() {
+      if (state.poolOpen) {
+        closePoolDom();
+        return;
+      }
+      await loadVocabulary();
+      openPoolDom(isNarrow());
+      const add = $("poolAdd");
+      if (add) add.focus();
     }
 
     async function openFolder(id) {
@@ -1162,6 +1424,9 @@
       }
       renderSidebar();
       applyFilter();
+      await loadVocabulary();
+      syncPoolUi();
+      if (state.packPanelOpen) syncEditorUi();
       if (!state.scanning && !state.scanError) {
         $("countLabel").textContent = (data.count || state.items.length).toLocaleString() + " files";
       }
@@ -1226,8 +1491,26 @@
       state.tagsExpanded = !state.tagsExpanded;
       renderSidebar();
     });
-    $("editClose").addEventListener("click", async () => {
-      await selectPack(null);
+    $("editClose").addEventListener("click", () => { collapsePackEditor(); });
+    $("modifyTagsBtn").addEventListener("click", () => { togglePackPanel(); });
+    $("poolToggle").addEventListener("click", () => { togglePoolPanel(); });
+    $("poolToggleHeader").addEventListener("click", () => { togglePoolPanel(); });
+    $("poolDone").addEventListener("click", () => { closePoolDom(); });
+    $("poolSearch").addEventListener("input", (e) => {
+      state.poolQuery = e.target.value;
+      syncPoolUi();
+      if (state.packPanelOpen) syncEditorUi();
+    });
+    $("poolAddBtn").addEventListener("click", () => { addPoolTag($("poolAdd").value); });
+    $("poolAdd").addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      addPoolTag($("poolAdd").value);
+    });
+    $("poolChips").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-pool-tag]");
+      if (!btn) return;
+      removePoolTag(btn.dataset.poolTag);
     });
     $("editTitle").addEventListener("input", (e) => {
       if (!state.editDraft) return;
@@ -1235,43 +1518,43 @@
       $("editTitleReadout").textContent = e.target.value || state.editPack || "";
       markDirty();
     });
-    $("editKind").addEventListener("change", (e) => {
+    $("editTitle").addEventListener("blur", async () => {
+      if (!state.editDirty || !state.editDraft || state.editSaving) return;
+      await saveEditor();
+    });
+    $("editKind").addEventListener("change", async (e) => {
       if (!state.editDraft) return;
+      const prev = state.editOrigKind;
       state.editDraft.kind = e.target.value;
-      markDirty();
+      const ok = await saveEditor();
+      if (!ok) {
+        state.editDraft.kind = prev;
+        $("editKind").value = prev;
+        syncEditorUi();
+      }
     });
     $("editTags").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-edit-tag]");
       if (!btn || !state.editDraft) return;
-      const t = btn.dataset.editTag;
-      state.editDraft.tags = state.editDraft.tags.filter((x) => x !== t);
-      markDirty();
+      togglePackTag(btn.dataset.editTag);
     });
-    $("editAdd").addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return;
-      e.preventDefault();
-      addDraftTag($("editAdd").value);
-      $("editAdd").value = "";
-    });
-    $("editSave").addEventListener("click", () => { saveEditor(); });
     $("editRestore").addEventListener("click", () => { restoreEditor(); });
     $("editTagsBtn").addEventListener("click", async () => {
       const it = state.items.find((x) => x.id === state.playingId) || currentItem();
-      if (!it) return;
-      if (state.editDirty && state.editPack && state.editPack !== it.pack) {
+      const slug = (it && it.pack) || state.pack;
+      if (!slug) return;
+      if (state.editDirty && state.editPack && state.editPack !== slug) {
         if (!(await confirmLeaveEditor())) return;
       }
-      state.pack = it.pack;
+      state.pack = slug;
       renderSidebar();
       applyFilter();
-      const el = $("packEditor");
-      if (state.editPack === it.pack && state.editDraft && !el.hasAttribute("hidden")) {
+      if (state.packPanelOpen && state.editPack === slug) {
         openEditorDom(true);
         syncEditorUi();
-        $("editAdd").focus();
         return;
       }
-      await openEditor(it.pack, true);
+      await openEditor(slug, true);
     });
     listEl.addEventListener("scroll", () => renderList(), { passive: true });
     listEl.addEventListener("click", (e) => {
@@ -1405,6 +1688,14 @@
         return;
       }
       if (e.key === "Escape") {
+        if (state.packPanelOpen) {
+          collapsePackEditor();
+          return;
+        }
+        if (state.poolOpen) {
+          closePoolDom();
+          return;
+        }
         $("search").blur();
         return;
       }
@@ -1438,12 +1729,9 @@
     let wasNarrow = isNarrow();
     window.addEventListener("resize", () => {
       renderList();
-      const el = $("packEditor");
       const narrow = isNarrow();
-      if (!el.hasAttribute("hidden")) {
-        if (narrow && !wasNarrow) openEditorDom(true);
-        else if (!narrow && wasNarrow) openEditorDom(false);
-      }
+      if (state.packPanelOpen) openEditorDom(narrow);
+      if (state.poolOpen) openPoolDom(narrow);
       wasNarrow = narrow;
     });
     (async () => {

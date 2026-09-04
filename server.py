@@ -40,6 +40,7 @@ VALID_KINDS = {KIND_MUSIC, KIND_VOICE, KIND_SFX}
 SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 TAG_RE = re.compile(r"^[a-z0-9_][a-z0-9+\-._]{0,31}$")
 MAX_EXTRA_TAGS = 24
+MAX_VOCABULARY = 256
 MAX_TITLE_LEN = 80
 MAX_BODY = 64 * 1024
 KIND_LABELS = {KIND_MUSIC: "Music", KIND_VOICE: "Voice", KIND_SFX: "SFX"}
@@ -421,21 +422,31 @@ def slug_is_known(slug: str, dest_doc: dict | None = None) -> bool:
     return False
 
 
+def parse_tag_name(raw) -> tuple[str | None, str | None]:
+    s = str(raw).strip().lower()
+    if not s:
+        return None, "Type a tag name."
+    if any(ch.isspace() for ch in s):
+        return None, "Use a hyphen, like sci-fi"
+    if s in VALID_KINDS:
+        return None, "Use the Type dropdown for music, voice, or sfx."
+    if not TAG_RE.fullmatch(s):
+        return None, "That tag name isn’t allowed."
+    return s, None
+
+
 def parse_extra_tags(raw) -> tuple[list[str] | None, str | None]:
     if not isinstance(raw, list):
         return None, "tags must be a list"
     extras: list[str] = []
     seen: set[str] = set()
     for t in raw:
-        s = str(t).strip().lower()
-        if not s:
+        if not str(t).strip():
             continue
-        if any(ch.isspace() for ch in s):
-            return None, "Use a hyphen, like sci-fi"
-        if s in VALID_KINDS:
-            return None, "Use the Type dropdown for music, voice, or sfx."
-        if not TAG_RE.fullmatch(s):
-            return None, "That tag name isn’t allowed."
+        s, err = parse_tag_name(t)
+        if err:
+            return None, err
+        assert s is not None
         if s in seen:
             continue
         seen.add(s)
@@ -443,6 +454,79 @@ def parse_extra_tags(raw) -> tuple[list[str] | None, str | None]:
     if len(extras) > MAX_EXTRA_TAGS:
         return None, "That’s enough tags for this pack."
     return extras, None
+
+
+def parse_stored_vocabulary(raw) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in raw:
+        s, err = parse_tag_name(t)
+        if err or s is None or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def extras_in_packs(packs) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    if not isinstance(packs, dict):
+        return out
+    for meta in packs.values():
+        if not isinstance(meta, dict):
+            continue
+        for t in meta.get("tags") or []:
+            s = str(t).strip().lower()
+            if not s or s in VALID_KINDS or s in seen:
+                continue
+            if not TAG_RE.fullmatch(s):
+                continue
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def vocabulary_from_document(doc: dict) -> list[str]:
+    stored = parse_stored_vocabulary(doc.get("vocabulary") if isinstance(doc, dict) else None)
+    seen = set(stored)
+    out = list(stored)
+    packs = doc.get("packs") if isinstance(doc, dict) else None
+    for t in extras_in_packs(packs or {}):
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def union_vocabulary(vocab: list[str], extras: list[str]) -> list[str]:
+    seen = set(vocab)
+    out = list(vocab)
+    for t in extras:
+        if t and t not in VALID_KINDS and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def strip_tag_from_pack_obj(obj: dict, tag: str) -> bool:
+    """Remove tag from a pack object. Returns True if tags changed."""
+    kind = str(obj.get("kind") or "").lower()
+    if kind not in VALID_KINDS:
+        kind = KIND_SFX
+        obj["kind"] = kind
+    existing = obj.get("tags")
+    if not isinstance(existing, list):
+        obj["tags"] = [kind]
+        return False
+    extras = [str(t) for t in existing if str(t) not in VALID_KINDS and str(t) != tag]
+    new_tags = tags_for_sidecar(kind, extras)
+    if new_tags == [str(t) for t in existing]:
+        return False
+    obj["tags"] = new_tags
+    return True
 
 
 def tags_for_sidecar(kind: str, extras: list[str]) -> list[str]:
@@ -545,38 +629,38 @@ def _io_save_error(exc: BaseException) -> str:
     return str(exc)
 
 
-def commit_packkind(
-    slug: str,
-    new_obj: dict,
+def commit_packkind_document(
+    merged: dict,
     message: str,
     dest: Path,
     bak: Path,
     snap: Path,
+    slugs: list[str],
+    *,
+    return_items: bool = True,
 ) -> tuple[int, dict]:
-    """Write dest + bak + catalog + snapshot. Caller holds the write gate.
-    Paths are captured at write start so a mid-Save folder switch cannot retarget dest."""
+    """Write dest + bak + catalog + snapshot. Caller holds the write gate."""
     global _packkind
     sidecar_saved = False
-    try:
-        dest_doc = read_packkind_document(dest)
-    except PackkindReadError:
-        return 422, {"ok": False, "error": "Could not read tags file."}
-    merged = dest_doc
     if not isinstance(merged.get("version"), int):
         merged["version"] = 1
-    packs = merged.setdefault("packs", {})
-    packs[slug] = new_obj
+    merged.setdefault("packs", {})
+    merged["vocabulary"] = vocabulary_from_document(merged)
     try:
         if dest.exists():
             shutil.copy2(dest, bak)
         write_json_atomic(dest, merged, indent=2)
         sidecar_saved = True
         _packkind = merged["packs"]
-        patched_items = patch_catalog_for_pack(slug)
+        patched_items: list[dict] = []
+        patched_n = 0
+        for slug in slugs:
+            chunk = patch_catalog_for_pack(slug)
+            patched_n += len(chunk)
+            if return_items:
+                patched_items.extend(chunk)
         persist_catalog_compact()
         write_json_atomic(snap, merged, indent=2)
-    except PackkindReadError:
-        return 422, {"ok": False, "error": "Could not read tags file."}
     except OSError as exc:
         err: dict = {"ok": False, "error": _io_save_error(exc)}
         if sidecar_saved:
@@ -587,27 +671,58 @@ def commit_packkind(
         if sidecar_saved:
             err["sidecarSaved"] = True
         return 500, err
+    body: dict = {
+        "ok": True,
+        "vocabulary": list(merged.get("vocabulary") or []),
+        "patched": patched_n,
+        "message": message,
+    }
+    if return_items:
+        body["items"] = patched_items
+    else:
+        body["reloadCatalog"] = True
+    print(f"packkind: saved {len(slugs)} pack(s) ({patched_n} items) -> {dest}", flush=True)
+    return 200, body
+
+
+def commit_packkind(
+    slug: str,
+    new_obj: dict,
+    message: str,
+    dest: Path,
+    bak: Path,
+    snap: Path,
+) -> tuple[int, dict]:
+    """Write dest + bak + catalog + snapshot. Caller holds the write gate.
+    Paths are captured at write start so a mid-Save folder switch cannot retarget dest."""
+    try:
+        dest_doc = read_packkind_document(dest)
+    except PackkindReadError:
+        return 422, {"ok": False, "error": "Could not read tags file."}
+    packs = dest_doc.setdefault("packs", {})
+    packs[slug] = new_obj
+    extras = [str(t) for t in (new_obj.get("tags") or []) if str(t) not in VALID_KINDS]
+    dest_doc["vocabulary"] = union_vocabulary(vocabulary_from_document(dest_doc), extras)
+    code, body = commit_packkind_document(dest_doc, message, dest, bak, snap, [slug])
+    if code != 200:
+        return code, body
     src_doc, _src = restore_source(
-        merged,
+        dest_doc,
         optional_packkind_document(snap),
         optional_packkind_document(bak),
         slug,
     )
     would = src_doc is not None
     title = display_title(slug, new_obj)
-    print(f"packkind: saved {slug} ({len(patched_items)} items) -> {dest}", flush=True)
-    return 200, {
-        "ok": True,
+    body.update({
         "pack": slug,
         "kind": new_obj.get("kind"),
         "title": title,
         "tags": list(new_obj.get("tags") or []),
-        "patched": len(patched_items),
         "hasBackup": would,
         "restoreWouldChange": would,
-        "message": message,
-        "items": patched_items,
-    }
+    })
+    return code, body
 
 
 def field_patch_pack(existing: dict | None, slug: str, kind=_OMIT, title=_OMIT, tags=_OMIT) -> tuple[dict | None, str | None]:
@@ -685,12 +800,111 @@ def get_packkind_response(slug: str) -> tuple[int, dict]:
         "kind": kind,
         "title": title,
         "tags": tags,
+        "vocabulary": vocabulary_from_document(dest_doc),
         "fileCount": pack_file_count(slug),
         "hasBackup": would,
         "restoreWouldChange": would,
         "catalogAheadOfSidecar": catalog_ahead_of_sidecar(slug, tags, would),
         "source": source,
     }
+
+
+def get_vocabulary_response() -> tuple[int, dict]:
+    if _audio_root is None:
+        return 400, {"ok": False, "error": "No library folder selected"}
+    dest, _bak, _snap = packkind_dest_paths()
+    try:
+        dest_doc = read_packkind_document(dest)
+    except PackkindReadError:
+        return 422, {"ok": False, "error": "Could not read tags file."}
+    return 200, {"ok": True, "vocabulary": vocabulary_from_document(dest_doc)}
+
+
+def save_vocabulary_response(payload: dict) -> tuple[int, dict]:
+    if _audio_root is None:
+        return 400, {"ok": False, "error": "No library folder selected"}
+    if forbidden_packkind_parent(_audio_root):
+        return 400, {"ok": False, "error": "Cannot save tags in this folder."}
+    add_raw = payload["add"] if "add" in payload else _OMIT
+    remove_raw = payload["remove"] if "remove" in payload else _OMIT
+    if (add_raw is _OMIT) == (remove_raw is _OMIT):
+        return 400, {"ok": False, "error": "Send add or remove."}
+    gate = begin_packkind_write()
+    if gate:
+        return 409, {"ok": False, "error": gate}
+    try:
+        with _packkind_write_lock:
+            dest, bak, snap = packkind_dest_paths()
+            try:
+                dest_doc = read_packkind_document(dest)
+            except PackkindReadError:
+                return 422, {"ok": False, "error": "Could not read tags file."}
+            vocab = vocabulary_from_document(dest_doc)
+            if add_raw is not _OMIT:
+                tag, err = parse_tag_name(add_raw)
+                if err:
+                    return 400, {"ok": False, "error": err}
+                assert tag is not None
+                if tag in vocab:
+                    return 200, {
+                        "ok": True,
+                        "vocabulary": vocab,
+                        "patched": 0,
+                        "message": f"“{tag}” is already in the library.",
+                    }
+                if len(vocab) >= MAX_VOCABULARY:
+                    return 400, {"ok": False, "error": "That’s enough tags for the library."}
+                vocab.append(tag)
+                dest_doc["vocabulary"] = vocab
+                return commit_packkind_document(
+                    dest_doc,
+                    f"Added “{tag}”. Select a pack, then Modify tags to put it on that pack.",
+                    dest,
+                    bak,
+                    snap,
+                    [],
+                )
+            tag, err = parse_tag_name(remove_raw)
+            if err:
+                return 400, {"ok": False, "error": err}
+            assert tag is not None
+            packs = dest_doc.setdefault("packs", {})
+            stripped: list[str] = []
+            for slug, obj in list(packs.items()):
+                if not isinstance(obj, dict):
+                    continue
+                if strip_tag_from_pack_obj(obj, tag):
+                    stripped.append(slug)
+            dest_doc["vocabulary"] = [t for t in vocab if t != tag]
+            stayed = False
+            code, body = commit_packkind_document(
+                dest_doc,
+                f"Removed “{tag}” from the library.",
+                dest,
+                bak,
+                snap,
+                stripped,
+                return_items=len(stripped) <= 1,
+            )
+            if code != 200:
+                return code, body
+            with _catalog_lock:
+                for it in _catalog.get("items") or []:
+                    if tag in (it.get("tags") or []):
+                        stayed = True
+                        break
+            body["strippedPacks"] = stripped
+            body["stayedOnFiles"] = stayed
+            if stayed:
+                body["message"] = (
+                    f"Removed “{tag}” from the library. "
+                    "Some files still show it because it is in the name."
+                )
+            elif not stripped and tag not in vocab:
+                body["message"] = f"“{tag}” was not in the library."
+            return code, body
+    finally:
+        end_packkind_write()
 
 
 def save_packkind_response(payload: dict) -> tuple[int, dict]:
@@ -1241,6 +1455,10 @@ class Handler(BaseHTTPRequestHandler):
             code, body = get_packkind_response(slug)
             self._json(code, body)
             return
+        if path == "/api/tags":
+            code, body = get_vocabulary_response()
+            self._json(code, body)
+            return
         if path == "/api/status":
             st = snapshot_scan()
             cat = snapshot_catalog()
@@ -1357,6 +1575,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/packkind/restore":
             code, body = restore_packkind_response(payload)
+            self._json(code, body)
+            return
+        if path == "/api/tags":
+            code, body = save_vocabulary_response(payload)
             self._json(code, body)
             return
         if path == "/api/open":

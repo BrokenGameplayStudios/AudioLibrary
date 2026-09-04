@@ -11,6 +11,7 @@ Scan a root folder and its subfolders, then search, filter, and preview wav / mp
 * Recursively indexes a folder you choose (music, voice, SFX packs)
 * Search by name, pack, folder, or tag
 * Filter by type (music / voice / SFX), tags, and pack
+* Add and remove tags in the app (library list, then per pack)
 * In-page preview player with seek and volume
 * Open the file in Explorer
 * Works from a mapped drive or a UNC share (`\\server\share`)
@@ -62,13 +63,15 @@ Stop the server with Ctrl+C in the console window.
 
 The first scan of tens of thousands of files on a UNC share can take a few minutes. After that, `catalog.json` makes the next launch instant.
 
-## Tags on a pack
+## Tags
 
-Select a pack in the sidebar, or on a phone click **Edit tags** while a sound plays. Type a tag, press Enter, then click **Save tags**. Other files in this pack will show them too.
+**Edit tags** (sidebar, or the header on a phone) opens the library tag list. Type a name and click **Add**. Click **×** on a tag to remove it from the library — that also takes it off every pack that had it. **Done** hides the panel.
+
+To put tags on a pack: select the pack, then **Modify tags**. Click a tag to turn it on or off for that pack (it saves as you click). **Done** hides the panel; on a computer the pack stays selected.
 
 Changing Type moves the pack between Music / Voice / SFX.
 
-If you re-export from Unreal, open that pack’s **Tags on this pack** panel (or **Edit tags**). If it says “These tags look different from the last save,” click **Restore last tags**. Do not click Rescan until after Restore. Looking at the file list is not enough — rows can still show the old tags until Rescan.
+If you re-export from Unreal, open **Modify tags** for that pack. If it says “These tags look different from the last save,” click **Restore last tags**. Do not click Rescan until after Restore. Looking at the file list is not enough — rows can still show the old tags until Rescan.
 
 Filter chips follow the Type button. Selecting more than one tag shows files that have all of them. The pack box filters the list.
 
@@ -102,6 +105,10 @@ The bat starts a local HTTP server on `127.0.0.1`. The page talks to:
 * `POST /api/rescan` — scan the current root again
 * `POST /api/open` — open the file in Explorer
 * `GET /media/<id>` — ranged audio for the player
+* `GET /api/tags` — the library tag list
+* `POST /api/tags` — add a tag, or remove one from the library and every pack
+* `GET /api/packkind` — tags for one pack
+* `POST /api/packkind` — save tags / type for one pack
 
 `catalog.json` and `config.json` are generated next to `server.py` and are not part of the git repo.
 
@@ -109,7 +116,7 @@ Skipped while scanning: `_library`, `_ZIP`, `_export`, hidden folders, and `._*`
 
 ## How it stores tags
 
-A file named `packkind.json` lives **next to the packs**, not inside `_library`. The app reads and writes it. Filenames also add tags automatically.
+A file named `packkind.json` lives **next to the packs**, not inside `_library`. The app reads and writes it (the library tag list and the tags on each pack). Filenames also add tags automatically.
 
 An editor exporter can write a starter `packkind.json`; this app is where you add real tags.
 
@@ -136,8 +143,8 @@ The server tries 8765, then 8766–8784. The console prints the URL it actually 
 **Scan looks stuck**
 The header should count up (`Found 1,240 files in …`). If it errors, the message stays on screen instead of spinning. A first scan of tens of thousands of files on a UNC share can take several minutes; later launches load `catalog.json` and skip that wait.
 
-**Save tags failed**
-Is the share still connected? If a scan is in progress, wait for it to finish, then Save.
+**Could not save tags**
+Is the share still connected? If a scan is in progress, wait for it to finish, then try again.
 
 ## About
 
